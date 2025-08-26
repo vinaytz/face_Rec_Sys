@@ -1,0 +1,85 @@
+import cv2
+import numpy as np
+import pyautogui
+import os
+import pywhatkit as kit
+import serial
+import time
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+arduino = serial.Serial('COM5', 9600)
+time.sleep(2)  
+
+
+def load_training_data(data_path):
+    faces = []
+    labels = []
+    label_map = {}
+    current_id = 0
+
+    for person in os.listdir(data_path):
+        person_path = os.path.join(data_path, person)
+        if not os.path.isdir(person_path):
+            continue
+        label_map[current_id] = person
+        for img_name in os.listdir(person_path):
+            img_path = os.path.join(person_path, img_name)
+            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                continue
+            faces.append(img)
+            labels.append(current_id)
+        current_id += 1
+
+    return faces, labels, label_map
+
+# Load training data
+faces, labels, label_map = load_training_data("DataBase")
+recognizer = cv2.face.LBPHFaceRecognizer_create()
+recognizer.train(faces, np.array(labels))
+
+def send_whatsapp_msg(name):
+    message = f"✅ Access Granted to {name} at {time.strftime('%H:%M:%S')}."
+    phone_number = "+917307157500" 
+
+    try:
+        kit.sendwhatmsg_instantly(phone_number, message, wait_time=10, tab_close=True)
+        print(f"📲 WhatsApp message sent to admin: {message}")
+    except Exception as e:
+        print(f"⚠️ Failed to send WhatsApp message: {e}")
+
+cap = cv2.VideoCapture(0)  # or try 1, 2 if 0 doesn't work
+
+# Main loop
+while True:
+    # screenshot = pyautogui.screenshot()
+    # frame = np.array(screenshot)
+    # frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    ret, frame = cap.read()
+    if not ret:
+        continue
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
+
+    for (x, y, w, h) in faces:
+        time.sleep(1)
+        id_, conf = recognizer.predict(gray[y:y+h, x:x+w])
+        if conf < 60:
+            name = label_map[id_]
+            print(f"✅ Access Granted to {name}")
+            arduino.write(b'G')
+            send_whatsapp_msg(name) 
+        else:
+            print("❌ Access Denied")
+            
+            arduino.write(b'D')
+
+
+    # Show what it's seeing (optional)
+    cv2.imshow("Screen Feed", frame)
+    if cv2.waitKey(1) == ord('q'):
+        break
+
+cv2.destroyAllWindows()
